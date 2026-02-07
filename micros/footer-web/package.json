@@ -24,7 +24,7 @@
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.1",
     "typescript": "^5.9.3",
-    "webpack": "^5.103.0"
+    "webpack": "^5.104.1"
   },
   "name": "@snokam/footer-web",
   "exports": {
