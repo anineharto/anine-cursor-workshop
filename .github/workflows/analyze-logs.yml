@@ -1,0 +1,82 @@
+name: Analyze Logs and Create Issues
+
+on:
+  schedule:
+    - cron: "0 8 * * *" # Daily at 08:00 UTC
+  workflow_dispatch:
+    inputs:
+      log_source:
+        description: "Log source to analyze (actions, app, or both)"
+        required: false
+        default: "both"
+
+jobs:
+  analyze-logs:
+    runs-on: ubuntu-latest
+    environment: jira-github-workflow-p
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Collect recent GitHub Actions logs
+        if: ${{ github.event.inputs.log_source != 'app' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/logs
+          echo "=== GitHub Actions Workflow Runs (last 24h) ===" > /tmp/logs/actions.log
+
+          SINCE=$(date -u -d '24 hours ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-24H +"%Y-%m-%dT%H:%M:%SZ")
+
+          gh run list \
+            --repo ${{ github.repository }} \
+            --limit 50 \
+            --json databaseId,name,status,conclusion,createdAt,updatedAt,headBranch \
+            --jq ".[] | select(.createdAt >= \"$SINCE\")" \
+            >> /tmp/logs/actions.log || true
+
+          echo "--- Failed runs ---" >> /tmp/logs/actions.log
+          gh run list \
+            --repo ${{ github.repository }} \
+            --limit 20 \
+            --status failure \
+            --json databaseId,name,conclusion,createdAt,headBranch,url \
+            >> /tmp/logs/actions.log || true
+
+          cat /tmp/logs/actions.log
+
+      - name: Analyze logs with Claude and create issues
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_FOUNDRY_RESOURCE: ${{ vars.ANTHROPIC_FOUNDRY_RESOURCE }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          use_foundry: "true"
+          prompt: |
+            You are a log analysis assistant. Your job is to analyze logs and create GitHub issues for any problems found.
+
+            Read the log file at /tmp/logs/actions.log (if it exists).
+
+            For each distinct problem or pattern you find (e.g. repeated failures, errors, anomalies):
+            1. Check if a similar issue already exists using: gh issue list --repo ${{ github.repository }} --state open --label "log-analysis"
+            2. If no duplicate exists, create a GitHub issue using:
+               gh issue create \
+                 --repo ${{ github.repository }} \
+                 --title "<concise title describing the problem>" \
+                 --label "log-analysis" \
+                 --body "<detailed description including: what was found, affected workflow/component, relevant log excerpts, and suggested next steps>"
+
+            Only create issues for real problems — skip successful runs and informational entries.
+            Group related failures into a single issue rather than creating one per failure.
+            If no problems are found, output "No issues found — logs look healthy." and do not create any issues.
