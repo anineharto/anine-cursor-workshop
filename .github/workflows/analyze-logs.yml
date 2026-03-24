@@ -63,6 +63,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           use_foundry: "true"
+          model: "claude-sonnet-4-6"
           prompt: |
             You are a log analysis assistant. Your job is to analyze logs and create GitHub issues for any problems found.
 

@@ -51,4 +51,5 @@ jobs:
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
           use_foundry: "true"
+          model: "claude-sonnet-4-6"
           prompt: ${{ github.event.inputs.prompt }}
