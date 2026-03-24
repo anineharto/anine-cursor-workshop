@@ -41,6 +41,7 @@ jobs:
           use_foundry: "true"
           claude_args: "--model claude-sonnet-4-6"
           show_full_output: "true"
+          settings: '{"permissions":{"defaultMode":"bypassPermissions"}}'
           prompt: |
             You are a log analysis assistant with access to Azure CLI and GitHub CLI.
 

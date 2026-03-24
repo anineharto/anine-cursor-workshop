@@ -52,4 +52,5 @@ jobs:
         with:
           use_foundry: "true"
           claude_args: "--model claude-sonnet-4-6"
+          settings: '{"permissions":{"defaultMode":"bypassPermissions"}}'
           prompt: ${{ github.event.inputs.prompt }}
