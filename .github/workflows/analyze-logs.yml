@@ -1,0 +1,89 @@
+name: Analyze Logs and Create Issues
+
+on:
+  schedule:
+    - cron: "0 8 * * *" # Daily at 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  analyze-logs:
+    runs-on: ubuntu-latest
+    environment: jira-github-workflow-p
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Azure login
+        run: |
+          az login --service-principal \
+            --username "${{ secrets.AZURE_CLIENT_ID }}" \
+            --password "${{ secrets.AZURE_CLIENT_SECRET }}" \
+            --tenant "${{ secrets.AZURE_TENANT_ID }}"
+          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+      - name: Analyze logs with Claude and create issues
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_FOUNDRY_RESOURCE: ${{ vars.ANTHROPIC_FOUNDRY_RESOURCE }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          use_foundry: "true"
+          show_full_output: "true"
+          claude_args: |
+            --model claude-sonnet-4-6
+            --dangerously-skip-permissions
+          prompt: |
+            You are a log analysis assistant with access to Azure CLI and GitHub CLI.
+
+            The Log Analytics workspace is:
+            - Workspace ID: a53c2ee0-9900-4756-b9c1-ab1b96a28d87
+            - Name: law-snkm-p
+            - Resource group: rg-snkm-shared-p
+
+            You are already logged in to Azure. Use the az CLI to query the Log Analytics
+            workspace and investigate the health of the application. Decide yourself what
+            queries are most relevant — for example: errors, exceptions, failed requests,
+            warnings, slow operations, or any anomalies over the last 7 days.
+
+            Start with AppExceptions — this is the most important table:
+            az monitor log-analytics query \
+              --workspace a53c2ee0-9900-4756-b9c1-ab1b96a28d87 \
+              --analytics-query "AppExceptions | where TimeGenerated > ago(24h) | summarize count() by ExceptionType, OuterMessage, AppRoleName | order by count_ desc | limit 5" \
+              --output json
+
+            Then check AppRequests for failures if needed:
+            az monitor log-analytics query \
+              --workspace a53c2ee0-9900-4756-b9c1-ab1b96a28d87 \
+              --analytics-query "AppRequests | where TimeGenerated > ago(24h) and Success == false | summarize count() by Name, ResultCode, AppRoleName | order by count_ desc | limit 5" \
+              --output json
+
+            Then run targeted KQL queries on relevant tables using:
+            az monitor log-analytics query \
+              --workspace a53c2ee0-9900-4756-b9c1-ab1b96a28d87 \
+              --analytics-query "<your KQL query>" \
+              --output json
+
+            After investigating, for each distinct problem you find:
+            1. Check for duplicates: gh issue list --repo ${{ github.repository }} --state open --label "log-analysis"
+            2. If no duplicate exists, create a GitHub issue:
+               gh issue create \
+                 --repo ${{ github.repository }} \
+                 --label "log-analysis" \
+                 --title "<concise title>" \
+                 --body "<description with: what was found, affected service, error details, frequency, and suggested fix>"
+
+            Rules:
+            - Only create issues for real problems
+            - Group related failures into one issue
+            - If nothing notable found, say "No issues found — logs look healthy."
