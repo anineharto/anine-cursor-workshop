@@ -63,3 +63,23 @@ that sends a prompt to a Claude model hosted in Azure AI Foundry.
    - `max_tokens` (defaults to `600`)
 
 The response is added to the workflow summary and uploaded as an artifact.
+
+### Trigger from a PR comment
+
+You can also trigger Claude by commenting on a pull request:
+
+```text
+@claude summarize the risks in this PR
+```
+
+When a PR comment starts with `@claude`, the workflow sends the rest of the
+comment as the prompt and posts Claude's response back as a PR comment.
+
+### Trigger from an issue description
+
+You can also put `@claude` directly in an issue body (description). On issue
+create/edit events, the workflow reads everything after `@claude` as the prompt
+and posts Claude's response back as an issue comment.
+
+The workflow permissions include `contents: write` and `pull-requests: write`,
+so it can be extended to open/update PRs from automation.
