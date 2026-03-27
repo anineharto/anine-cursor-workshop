@@ -30,9 +30,10 @@ const HomePage = ({ post }: HomePageProps) => (
       <Layout.Content>
         <Layout.Section padding={{ bottom: Padding.Large }}>
           <h1>Cursor Workshop</h1>
+          <p>A starter project for learning AI-assisted development with Cursor and Claude.</p>
           {post ? (
             <>
-              <h3>{post.title}</h3>
+              <h3>Latest Post: {post.title}</h3>
               <p>{post.excerpt}</p>
             </>
           ) : (
