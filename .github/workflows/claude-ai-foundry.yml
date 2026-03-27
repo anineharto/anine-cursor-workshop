@@ -1,0 +1,123 @@
+name: Claude via AI Foundry
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Prompt to send to Claude"
+        required: true
+        type: string
+      model:
+        description: "AI Foundry model name"
+        required: false
+        default: "claude-3-5-sonnet"
+        type: string
+      max_tokens:
+        description: "Max tokens in the response"
+        required: false
+        default: "600"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  ask-claude:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+      ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.ANTHROPIC_FOUNDRY_API_KEY }}
+      PROMPT: ${{ inputs.prompt }}
+      MODEL: ${{ inputs.model }}
+      MAX_TOKENS: ${{ inputs.max_tokens }}
+
+    steps:
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          test -n "${ANTHROPIC_BASE_URL}" || (echo "Missing secret ANTHROPIC_BASE_URL" && exit 1)
+          test -n "${ANTHROPIC_FOUNDRY_API_KEY}" || (echo "Missing secret ANTHROPIC_FOUNDRY_API_KEY" && exit 1)
+
+      - name: Call Claude model on AI Foundry
+        id: chat
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          endpoint = os.environ["ANTHROPIC_BASE_URL"].rstrip("/")
+          api_key = os.environ["ANTHROPIC_FOUNDRY_API_KEY"]
+          prompt = os.environ["PROMPT"]
+          model = os.environ["MODEL"]
+          max_tokens = int(os.environ.get("MAX_TOKENS", "600"))
+
+          url = f"{endpoint}/models/chat/completions?api-version=2024-05-01-preview"
+          payload = {
+            "model": model,
+            "messages": [
+              {"role": "system", "content": "You are Claude running inside GitHub Actions."},
+              {"role": "user", "content": prompt},
+            ],
+            "max_tokens": max_tokens,
+          }
+
+          req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+              "Content-Type": "application/json",
+              "api-key": api_key,
+            },
+            method="POST",
+          )
+
+          try:
+            with urllib.request.urlopen(req) as response:
+              raw = response.read().decode("utf-8")
+          except urllib.error.HTTPError as err:
+            details = err.read().decode("utf-8", errors="ignore")
+            raise SystemExit(f"Request failed ({err.code}): {details}") from err
+
+          result = json.loads(raw)
+          content = result["choices"][0]["message"]["content"]
+
+          with open("claude_response.json", "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+
+          with open("claude_response.md", "w", encoding="utf-8") as f:
+            f.write("# Claude response\n\n")
+            if isinstance(content, str):
+              f.write(content + "\n")
+            else:
+              # Some models can return content blocks
+              f.write(json.dumps(content, indent=2, ensure_ascii=False) + "\n")
+          PY
+
+      - name: Add response to workflow summary
+        shell: bash
+        run: |
+          {
+            echo "## Claude via AI Foundry"
+            echo ""
+            echo "**Model:** \`${MODEL}\`"
+            echo ""
+            echo "### Prompt"
+            echo ""
+            echo "${PROMPT}"
+            echo ""
+            echo "### Response"
+            echo ""
+            cat claude_response.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload response artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-ai-foundry-response
+          path: |
+            claude_response.json
+            claude_response.md
